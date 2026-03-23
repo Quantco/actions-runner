@@ -293,7 +293,7 @@ jobs:
       attestations: write
     env:
       REGISTRY: ghcr.io
-      IMAGE_NAME: ${{ github.repository_owner }}/actions-runner
+      IMAGE_NAME: quantco/actions-runner
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
