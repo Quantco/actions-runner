@@ -8,4 +8,4 @@ release:
 	git add releaseVersion
 	git commit -m "Release $(VERSION)"
 	git push origin release/$(DATE)
- 	gh release create $(VERSION) --target release/$(DATE) --title $(VERSION)
+	gh release create $(VERSION) --target release/$(DATE) --title $(VERSION)
