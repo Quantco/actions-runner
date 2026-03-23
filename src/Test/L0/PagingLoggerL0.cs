@@ -215,21 +215,32 @@ namespace GitHub.Runner.Common.Tests.Listener
         [Trait("Category", "Common")]
         public void StorageLoggerGetLogPath()
         {
-            using (var hc = new TestHostContext(this))
+            string tempDir = Path.Combine(Path.GetTempPath(), $"storage_logger_test_{Guid.NewGuid()}");
+            try
             {
-                var storageLogger = new StoragePagingLogger("/var/logs", "Build", 3);
-                storageLogger.Initialize(hc);
-                Guid timelineId = Guid.NewGuid();
-                Guid recordId = Guid.NewGuid();
+                using (var hc = new TestHostContext(this))
+                {
+                    var storageLogger = new StoragePagingLogger(tempDir, "Build", 3);
+                    storageLogger.Initialize(hc);
+                    Guid timelineId = Guid.NewGuid();
+                    Guid recordId = Guid.NewGuid();
 
-                storageLogger.Setup(timelineId, recordId);
+                    storageLogger.Setup(timelineId, recordId);
 
-                string path = storageLogger.GetLogPath("s3://my-bucket/logs");
-                Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path);
+                    string path = storageLogger.GetLogPath("s3://my-bucket/logs");
+                    Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path);
 
-                // Trailing slash should be trimmed
-                string path2 = storageLogger.GetLogPath("s3://my-bucket/logs/");
-                Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path2);
+                    // Trailing slash should be trimmed
+                    string path2 = storageLogger.GetLogPath("s3://my-bucket/logs/");
+                    Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path2);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
             }
         }
 
