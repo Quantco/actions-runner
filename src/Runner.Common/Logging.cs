@@ -165,4 +165,101 @@ namespace GitHub.Runner.Common
             }
         }
     }
+
+    public class StoragePagingLogger : RunnerService, IPagingLogger
+    {
+        private readonly string _writeBase;
+        private readonly string _stepName;
+        private readonly int _order;
+
+        private Guid _timelineId;
+        private Guid _timelineRecordId;
+        private FileStream _fileData;
+        private StreamWriter _fileWriter;
+        private long _totalLines;
+        private string _tmpFilePath;
+        private string _finalFilePath;
+
+        public long TotalLines => _totalLines;
+
+        public StoragePagingLogger(string writeBase, string stepName, int order)
+        {
+            _writeBase = writeBase;
+            _stepName = SanitizeFileName(stepName);
+            _order = order;
+        }
+
+        public override void Initialize(IHostContext hostContext)
+        {
+            base.Initialize(hostContext);
+            _totalLines = 0;
+        }
+
+        public void Setup(Guid timelineId, Guid timelineRecordId)
+        {
+            _timelineId = timelineId;
+            _timelineRecordId = timelineRecordId;
+
+            var directory = Path.Combine(_writeBase, _timelineId.ToString());
+            Directory.CreateDirectory(directory);
+
+            var baseName = $"{_order}_{_stepName}";
+            _finalFilePath = Path.Combine(directory, $"{baseName}.log");
+            _tmpFilePath = Path.Combine(directory, $"{baseName}.log.tmp");
+        }
+
+        public void Write(string message)
+        {
+            if (_fileWriter == null)
+            {
+                _fileData = new FileStream(_tmpFilePath, FileMode.Create, FileAccess.Write, FileShare.Read);
+                _fileWriter = new StreamWriter(_fileData, System.Text.Encoding.UTF8);
+            }
+
+            string line = $"{DateTime.UtcNow.ToString("O")} {message}";
+            _fileWriter.WriteLine(line);
+
+            _totalLines++;
+            if (line.IndexOf('\n') != -1)
+            {
+                foreach (char c in line)
+                {
+                    if (c == '\n')
+                    {
+                        _totalLines++;
+                    }
+                }
+            }
+        }
+
+        public void End()
+        {
+            if (_fileWriter != null)
+            {
+                _fileWriter.Flush();
+                _fileData.Flush();
+                _fileWriter.Dispose();
+                _fileWriter = null;
+                _fileData = null;
+
+                // Atomic rename signals the file is ready for external sync
+                File.Move(_tmpFilePath, _finalFilePath);
+            }
+        }
+
+        public string GetLogPath(string readBase)
+        {
+            var baseName = $"{_order}_{_stepName}";
+            return $"{readBase.TrimEnd('/')}/{_timelineId}/{baseName}.log";
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            foreach (var c in Path.GetInvalidFileNameChars())
+            {
+                name = name.Replace(c, '_');
+            }
+            return name;
+        }
+    }
 }

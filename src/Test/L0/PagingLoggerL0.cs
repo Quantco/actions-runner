@@ -126,5 +126,144 @@ namespace GitHub.Runner.Common.Tests.Listener
                 CleanLogFolder();
             }
         }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "Common")]
+        public void WriteToStorageLogger()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"storage_logger_test_{Guid.NewGuid()}");
+            try
+            {
+                using (var hc = new TestHostContext(this))
+                {
+                    var storageLogger = new StoragePagingLogger(tempDir, "TestStep", 1);
+                    storageLogger.Initialize(hc);
+                    Guid timelineId = Guid.NewGuid();
+                    Guid recordId = Guid.NewGuid();
+
+                    storageLogger.Setup(timelineId, recordId);
+
+                    // Write some data
+                    storageLogger.Write("Hello World");
+                    storageLogger.Write("Second line");
+
+                    // While writing, .tmp file should exist
+                    string tmpPath = Path.Combine(tempDir, timelineId.ToString(), "1_TestStep.log.tmp");
+                    Assert.True(File.Exists(tmpPath));
+
+                    storageLogger.End();
+
+                    // After End(), .tmp should be renamed to .log
+                    string finalPath = Path.Combine(tempDir, timelineId.ToString(), "1_TestStep.log");
+                    Assert.True(File.Exists(finalPath));
+                    Assert.False(File.Exists(tmpPath));
+
+                    // Verify content
+                    string content = File.ReadAllText(finalPath);
+                    Assert.Contains("Hello World", content);
+                    Assert.Contains("Second line", content);
+
+                    // Verify line count
+                    Assert.Equal(2, storageLogger.TotalLines);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "Common")]
+        public void StorageLoggerDoesNotQueueUploads()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"storage_logger_test_{Guid.NewGuid()}");
+            try
+            {
+                using (var hc = new TestHostContext(this))
+                {
+                    var storageLogger = new StoragePagingLogger(tempDir, "TestStep", 1);
+                    storageLogger.Initialize(hc);
+                    Guid timelineId = Guid.NewGuid();
+                    Guid recordId = Guid.NewGuid();
+
+                    storageLogger.Setup(timelineId, recordId);
+                    storageLogger.Write("Test data");
+                    storageLogger.End();
+
+                    // Verify no uploads were queued
+                    _jobServerQueue.Verify(x => x.QueueFileUpload(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+                    _jobServerQueue.Verify(x => x.QueueResultsUpload(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<bool>(), It.IsAny<long>()), Times.Never);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "Common")]
+        public void StorageLoggerGetLogPath()
+        {
+            using (var hc = new TestHostContext(this))
+            {
+                var storageLogger = new StoragePagingLogger("/var/logs", "Build", 3);
+                storageLogger.Initialize(hc);
+                Guid timelineId = Guid.NewGuid();
+                Guid recordId = Guid.NewGuid();
+
+                storageLogger.Setup(timelineId, recordId);
+
+                string path = storageLogger.GetLogPath("s3://my-bucket/logs");
+                Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path);
+
+                // Trailing slash should be trimmed
+                string path2 = storageLogger.GetLogPath("s3://my-bucket/logs/");
+                Assert.Equal($"s3://my-bucket/logs/{timelineId}/3_Build.log", path2);
+            }
+        }
+
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "Common")]
+        public void StorageLoggerEndWithNoWrites()
+        {
+            string tempDir = Path.Combine(Path.GetTempPath(), $"storage_logger_test_{Guid.NewGuid()}");
+            try
+            {
+                using (var hc = new TestHostContext(this))
+                {
+                    var storageLogger = new StoragePagingLogger(tempDir, "EmptyStep", 5);
+                    storageLogger.Initialize(hc);
+                    Guid timelineId = Guid.NewGuid();
+                    Guid recordId = Guid.NewGuid();
+
+                    storageLogger.Setup(timelineId, recordId);
+                    storageLogger.End();
+
+                    // No file should be created for empty logs
+                    string finalPath = Path.Combine(tempDir, timelineId.ToString(), "5_EmptyStep.log");
+                    Assert.False(File.Exists(finalPath));
+                    Assert.Equal(0, storageLogger.TotalLines);
+                }
+            }
+            finally
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+        }
     }
 }
