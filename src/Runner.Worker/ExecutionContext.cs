@@ -144,6 +144,10 @@ namespace GitHub.Runner.Worker
 
         private IPagingLogger _logger;
         private IJobServerQueue _jobServerQueue;
+        private bool _logStoragePlaceholderSent = false;
+        private string _logStorageWriteBase;
+        private string _logStorageReadBase;
+        private string _displayName;
 
         private Guid _mainTimelineId;
         private Guid _detailTimelineId;
@@ -396,17 +400,22 @@ namespace GitHub.Runner.Worker
 
             child.EchoOnActionCommand = EchoOnActionCommand;
 
-            if (recordOrder != null)
-            {
-                child.InitializeTimelineRecord(_mainTimelineId, recordId, _record.Id, ExecutionContextType.Task, displayName, refName, recordOrder, embedded: isEmbedded);
-            }
-            else
-            {
-                child.InitializeTimelineRecord(_mainTimelineId, recordId, _record.Id, ExecutionContextType.Task, displayName, refName, ++_childTimelineRecordOrder, embedded: isEmbedded);
-            }
+            var resolvedOrder = recordOrder ?? ++_childTimelineRecordOrder;
+            child.InitializeTimelineRecord(_mainTimelineId, recordId, _record.Id, ExecutionContextType.Task, displayName, refName, (int)resolvedOrder, embedded: isEmbedded);
+            child._logStorageWriteBase = _logStorageWriteBase;
+            child._logStorageReadBase = _logStorageReadBase;
+            child._displayName = displayName;
+
             if (logger != null)
             {
                 child._logger = logger;
+            }
+            else if (!string.IsNullOrEmpty(_logStorageWriteBase))
+            {
+                var storageLogger = new StoragePagingLogger(_logStorageWriteBase, displayName, (int)resolvedOrder, Root._record.Id);
+                storageLogger.Initialize(HostContext);
+                child._logger = storageLogger;
+                child._logger.Setup(_mainTimelineId, recordId);
             }
             else
             {
@@ -553,6 +562,26 @@ namespace GitHub.Runner.Worker
             }
 
             _logger.End();
+
+            // When using storage logging, upload a placeholder log to GitHub
+            // so the persistent log view shows the storage path.
+            if (!string.IsNullOrEmpty(_logStorageWriteBase) && _logger is StoragePagingLogger storageLogger)
+            {
+                var logPath = storageLogger.GetLogPath(_logStorageReadBase);
+                var placeholderLine = $"{DateTime.UtcNow:O} Logs are located at {logPath}";
+
+                var pagesFolder = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Diag), PagingLogger.PagingFolder);
+                Directory.CreateDirectory(pagesFolder);
+                var pageFile = Path.Combine(pagesFolder, $"{_mainTimelineId}_{_record.Id}_placeholder.log");
+                File.WriteAllText(pageFile, placeholderLine + "\n");
+                _jobServerQueue.QueueFileUpload(_mainTimelineId, _record.Id, "DistributedTask.Core.Log", "CustomToolLog", pageFile, true);
+
+                var blocksFolder = Path.Combine(HostContext.GetDirectory(WellKnownDirectory.Diag), PagingLogger.BlocksFolder);
+                Directory.CreateDirectory(blocksFolder);
+                var blockFile = Path.Combine(blocksFolder, $"{_mainTimelineId}_{_record.Id}_placeholder.1");
+                File.WriteAllText(blockFile, placeholderLine + "\n");
+                _jobServerQueue.QueueResultsUpload(_record.Id, "ResultsLog", blockFile, "Results.Core.Log", deleteSource: true, finalize: true, firstBlock: true, totalLines: 1);
+            }
 
             UpdateGlobalStepsContext();
 
@@ -960,7 +989,24 @@ namespace GitHub.Runner.Worker
                 order: null); // The job timeline record's order is set by server.
 
             // Logger (must be initialized before writing warnings).
-            _logger = HostContext.CreateService<IPagingLogger>();
+            _logStorageWriteBase = Environment.GetEnvironmentVariable(Constants.Variables.Agent.LogStorageWriteBase);
+            _logStorageReadBase = Environment.GetEnvironmentVariable(Constants.Variables.Agent.LogStorageReadBase);
+            if (string.IsNullOrEmpty(_logStorageReadBase))
+            {
+                _logStorageReadBase = _logStorageWriteBase;
+            }
+            _displayName = message.JobDisplayName;
+
+            if (!string.IsNullOrEmpty(_logStorageWriteBase))
+            {
+                var storageLogger = new StoragePagingLogger(_logStorageWriteBase, "job", 0, _record.Id);
+                storageLogger.Initialize(HostContext);
+                _logger = storageLogger;
+            }
+            else
+            {
+                _logger = HostContext.CreateService<IPagingLogger>();
+            }
             _logger.Setup(_mainTimelineId, _record.Id);
 
             // Initialize 'echo on action command success' property, default to false, unless Step_Debug is set
@@ -998,7 +1044,22 @@ namespace GitHub.Runner.Worker
                 }
             }
 
-            _jobServerQueue.QueueWebConsoleLine(_record.Id, msg, totalLines);
+            if (!string.IsNullOrEmpty(_logStorageWriteBase))
+            {
+                // Send a single placeholder line to GitHub instead of streaming all log content
+                if (!_logStoragePlaceholderSent)
+                {
+                    _logStoragePlaceholderSent = true;
+                    var logPath = (_logger as StoragePagingLogger)?.GetLogPath(_logStorageReadBase)
+                        ?? $"{_logStorageReadBase.TrimEnd('/')}/{_mainTimelineId}/{_record.Id}.log";
+                    _jobServerQueue.QueueWebConsoleLine(_record.Id, $"Logs are located at {logPath}", totalLines);
+                }
+            }
+            else
+            {
+                _jobServerQueue.QueueWebConsoleLine(_record.Id, msg, totalLines);
+            }
+
             return totalLines;
         }
 

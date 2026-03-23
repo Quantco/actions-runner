@@ -308,6 +308,8 @@ namespace GitHub.Runner.Common
                 public static readonly string ActionArchiveCacheDirectory = "ACTIONS_RUNNER_ACTION_ARCHIVE_CACHE";
                 public static readonly string SymlinkCachedActions = "ACTIONS_RUNNER_SYMLINK_CACHED_ACTIONS";
                 public static readonly string EmitCompositeMarkers = "ACTIONS_RUNNER_EMIT_COMPOSITE_MARKERS";
+                public static readonly string LogStorageWriteBase = "ACTIONS_RUNNER_LOG_WRITE_BASE";
+                public static readonly string LogStorageReadBase = "ACTIONS_RUNNER_LOG_READ_BASE";
             }
 
             public static class System
