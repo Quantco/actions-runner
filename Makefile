@@ -1,4 +1,4 @@
-DATE := $(shell date +%Y-%m-%d-%H-%M-%S)
+DATE := $(shell date +%Y%m%d-%H%M%S)
 VERSION := $(shell cat src/runnerversion)-qc-$(DATE)
 
 .PHONY: release
