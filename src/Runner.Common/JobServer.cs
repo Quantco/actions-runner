@@ -165,6 +165,12 @@ namespace GitHub.Runner.Common
 
         private void InitializeWebsocketClient(TimeSpan delay)
         {
+            if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET")))
+            {
+                Trace.Info("WebSocket disabled via GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET, skipping live console feed.");
+                return;
+            }
+
             if (_serviceEndpoint.Authorization != null &&
                 _serviceEndpoint.Authorization.Parameters.TryGetValue(EndpointAuthorizationParameters.AccessToken, out var accessToken) &&
                 !string.IsNullOrEmpty(accessToken))
@@ -175,7 +181,6 @@ namespace GitHub.Runner.Common
                     feedStreamUrl = feedStreamUrl.Replace("https://", "wss://").Replace("http://", "ws://");
                     Trace.Info($"Creating websocket client ..." + feedStreamUrl);
                     this._websocketClient = new ClientWebSocket();
-                    this._websocketClient.Options.Proxy = HostContext.WebProxy;
                     this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {accessToken}");
                     var userAgentValues = new List<ProductInfoHeaderValue>();
                     userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());

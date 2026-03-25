@@ -185,7 +185,7 @@ namespace GitHub.Runner.Sdk
                 return null;
             }
 
-            if (destination.Scheme == Uri.UriSchemeHttps || destination.Scheme == "wss")
+            if (destination.Scheme == Uri.UriSchemeHttps)
             {
                 return new Uri(_httpsProxyAddress);
             }
@@ -197,17 +197,12 @@ namespace GitHub.Runner.Sdk
 
         public bool IsBypassed(Uri uri)
         {
-            // Treat WebSocket schemes like their HTTP equivalents for proxy bypass checks
-            var effectiveScheme = uri.Scheme == "wss" ? Uri.UriSchemeHttps
-                                : uri.Scheme == "ws"  ? Uri.UriSchemeHttp
-                                : uri.Scheme;
-
-            if (effectiveScheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(_httpsProxyAddress))
+            if (uri.Scheme == Uri.UriSchemeHttps && string.IsNullOrEmpty(_httpsProxyAddress))
             {
                 return true;
             }
 
-            if (effectiveScheme == Uri.UriSchemeHttp && string.IsNullOrEmpty(_httpProxyAddress))
+            if (uri.Scheme == Uri.UriSchemeHttp && string.IsNullOrEmpty(_httpProxyAddress))
             {
                 return true;
             }
