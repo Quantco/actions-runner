@@ -175,6 +175,7 @@ namespace GitHub.Runner.Common
                     feedStreamUrl = feedStreamUrl.Replace("https://", "wss://").Replace("http://", "ws://");
                     Trace.Info($"Creating websocket client ..." + feedStreamUrl);
                     this._websocketClient = new ClientWebSocket();
+                    this._websocketClient.Options.Proxy = HostContext.WebProxy;
                     this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {accessToken}");
                     var userAgentValues = new List<ProductInfoHeaderValue>();
                     userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());

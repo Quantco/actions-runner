@@ -180,6 +180,7 @@ namespace GitHub.Runner.Common
 
             Trace.Info($"Creating websocket client ..." + liveConsoleFeedUrl);
             this._websocketClient = new ClientWebSocket();
+            this._websocketClient.Options.Proxy = HostContext.WebProxy;
             this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {accessToken}");
             var userAgentValues = new List<ProductInfoHeaderValue>();
             userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());
