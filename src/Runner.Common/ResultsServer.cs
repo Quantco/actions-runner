@@ -181,6 +181,10 @@ namespace GitHub.Runner.Common
             Trace.Info($"Creating websocket client ..." + liveConsoleFeedUrl);
             this._websocketClient = new ClientWebSocket();
             this._websocketClient.Options.Proxy = HostContext.WebProxy;
+            if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_TLS_NO_VERIFY")))
+            {
+                this._websocketClient.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+            }
             this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {accessToken}");
             var userAgentValues = new List<ProductInfoHeaderValue>();
             userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());
@@ -219,6 +223,10 @@ namespace GitHub.Runner.Common
                         // ClientWebSocket cannot be reused after a failed connect; create a fresh one
                         this._websocketClient = new ClientWebSocket();
                         this._websocketClient.Options.Proxy = HostContext.WebProxy;
+                        if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_TLS_NO_VERIFY")))
+                        {
+                            this._websocketClient.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+                        }
                         this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {_token}");
                         var userAgentValues = new List<ProductInfoHeaderValue>();
                         userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());
