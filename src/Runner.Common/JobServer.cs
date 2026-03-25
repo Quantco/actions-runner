@@ -165,6 +165,12 @@ namespace GitHub.Runner.Common
 
         private void InitializeWebsocketClient(TimeSpan delay)
         {
+            if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET")))
+            {
+                Trace.Info("WebSocket disabled via GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET, skipping live console feed.");
+                return;
+            }
+
             if (_serviceEndpoint.Authorization != null &&
                 _serviceEndpoint.Authorization.Parameters.TryGetValue(EndpointAuthorizationParameters.AccessToken, out var accessToken) &&
                 !string.IsNullOrEmpty(accessToken))

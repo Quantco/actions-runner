@@ -166,6 +166,12 @@ namespace GitHub.Runner.Common
 
         private void InitializeWebsocketClient(string liveConsoleFeedUrl, string accessToken, TimeSpan delay, bool retryConnection = false)
         {
+            if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET")))
+            {
+                Trace.Info("WebSocket disabled via GITHUB_ACTIONS_RUNNER_DISABLE_WEBSOCKET, skipping live console feed.");
+                return;
+            }
+
             if (string.IsNullOrEmpty(accessToken))
             {
                 Trace.Info($"No access token from server");
