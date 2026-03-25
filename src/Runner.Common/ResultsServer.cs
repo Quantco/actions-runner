@@ -212,8 +212,23 @@ namespace GitHub.Runner.Common
                     Trace.Info("Exception caught during websocket client connect, retry connection.");
                     Trace.Error(ex);
                     retries++;
-                    this._websocketClient = null;
                     _lastConnectionFailure = DateTime.Now;
+
+                    if (retryConnection && retries < 3)
+                    {
+                        // ClientWebSocket cannot be reused after a failed connect; create a fresh one
+                        this._websocketClient = new ClientWebSocket();
+                        this._websocketClient.Options.Proxy = HostContext.WebProxy;
+                        this._websocketClient.Options.SetRequestHeader("Authorization", $"Bearer {_token}");
+                        var userAgentValues = new List<ProductInfoHeaderValue>();
+                        userAgentValues.AddRange(UserAgentUtility.GetDefaultRestUserAgent());
+                        userAgentValues.AddRange(HostContext.UserAgents);
+                        this._websocketClient.Options.SetRequestHeader("User-Agent", string.Join(" ", userAgentValues.Select(x => x.ToString())));
+                    }
+                    else
+                    {
+                        this._websocketClient = null;
+                    }
                 }
             } while (retryConnection && !connected && retries < 3);
         }
