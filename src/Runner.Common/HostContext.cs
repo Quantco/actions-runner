@@ -214,6 +214,10 @@ namespace GitHub.Runner.Common
                 }
             }
 
+            // Wire up proxy credential tracing so GetCredential calls appear in runner logs.
+            // This lets us confirm which auth schemes .NET iterates through during proxy tunnel setup.
+            RunnerWebProxy.Tracing = (message) => _trace.Info(message);
+
             if (StringUtil.ConvertToBoolean(Environment.GetEnvironmentVariable("GITHUB_ACTIONS_RUNNER_TLS_NO_VERIFY")))
             {
                 _trace.Warning($"Runner is running under insecure mode: HTTPS server certificate validation has been turned off by GITHUB_ACTIONS_RUNNER_TLS_NO_VERIFY environment variable.");

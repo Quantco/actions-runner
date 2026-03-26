@@ -42,7 +42,8 @@ namespace GitHub.Runner.Sdk
 
         public RunnerWebProxy()
         {
-            Credentials = new CredentialCache();
+            var proxyCredentials = new BasicProxyCredentials();
+            Credentials = proxyCredentials;
 
             var httpProxyAddress = Environment.GetEnvironmentVariable("http_proxy");
             if (string.IsNullOrEmpty(httpProxyAddress))
@@ -95,13 +96,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpProxyUsername) || !string.IsNullOrEmpty(_httpProxyPassword))
                 {
-                    var credential = new NetworkCredential(_httpProxyUsername, _httpProxyPassword);
-                    // Register under both the full URI (with userinfo) and stripped URI (without userinfo).
-                    // .NET may or may not strip userinfo from the proxy URI before calling GetCredential,
-                    // so we store both to ensure a match. Only "Basic" is registered so that .NET returns
-                    // null for Negotiate/NTLM challenges and falls through to Basic, which works cross-platform.
-                    AddBasicCredential(proxyHttpUri, credential);
-                    AddBasicCredential(new UriBuilder(proxyHttpUri.Scheme, proxyHttpUri.Host, proxyHttpUri.Port).Uri, credential);
+                    proxyCredentials.Add(proxyHttpUri, _httpProxyUsername, _httpProxyPassword);
                 }
             }
 
@@ -131,9 +126,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpsProxyUsername) || !string.IsNullOrEmpty(_httpsProxyPassword))
                 {
-                    var credential = new NetworkCredential(_httpsProxyUsername, _httpsProxyPassword);
-                    AddBasicCredential(proxyHttpsUri, credential);
-                    AddBasicCredential(new UriBuilder(proxyHttpsUri.Scheme, proxyHttpsUri.Host, proxyHttpsUri.Port).Uri, credential);
+                    proxyCredentials.Add(proxyHttpsUri, _httpsProxyUsername, _httpsProxyPassword);
                 }
             }
 
@@ -249,10 +242,42 @@ namespace GitHub.Runner.Sdk
             return false;
         }
 
-        private void AddBasicCredential(Uri proxyUri, NetworkCredential credential)
+        // Optional trace sink wired up by the runner host (e.g. HostContext) so that
+        // proxy credential lookups are visible in the runner log for diagnostics.
+        // Defaults to null (no-op). Never log the password itself.
+        public static Action<string> Tracing { get; set; }
+
+        // Returns credentials only for Basic auth, keyed by proxy host:port.
+        // Returning null for non-Basic schemes causes .NET to skip Negotiate/NTLM entirely.
+        // Matching by host:port (ignoring userinfo) avoids CredentialCache URI-matching
+        // pitfalls when .NET strips userinfo from the proxy URI before calling GetCredential.
+        private sealed class BasicProxyCredentials : ICredentials
         {
-            (Credentials as CredentialCache).Remove(proxyUri, "Basic");
-            (Credentials as CredentialCache).Add(proxyUri, "Basic", credential);
+            // Key: "host:port" (case-insensitive), Value: credential for that proxy
+            private readonly Dictionary<string, NetworkCredential> _map =
+                new(StringComparer.OrdinalIgnoreCase);
+
+            internal void Add(Uri proxyUri, string username, string password)
+            {
+                _map[$"{proxyUri.Host}:{proxyUri.Port}"] = new NetworkCredential(username, password);
+            }
+
+            public NetworkCredential GetCredential(Uri uri, string authType)
+            {
+                if (!string.Equals(authType, "Basic", StringComparison.OrdinalIgnoreCase))
+                {
+                    Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, skipping (only Basic is supported)");
+                    return null;
+                }
+                var key = $"{uri.Host}:{uri.Port}";
+                if (_map.TryGetValue(key, out var cred))
+                {
+                    Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, returning credentials for user '{cred.UserName}'");
+                    return cred;
+                }
+                Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, no credentials found for {key}");
+                return null;
+            }
         }
 
         private string PrependHttpIfMissing(string proxyAddress)
