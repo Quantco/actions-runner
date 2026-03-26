@@ -42,7 +42,8 @@ namespace GitHub.Runner.Sdk
 
         public RunnerWebProxy()
         {
-            Credentials = new CredentialCache();
+            var proxyCredentials = new BasicProxyCredentials();
+            Credentials = proxyCredentials;
 
             var httpProxyAddress = Environment.GetEnvironmentVariable("http_proxy");
             if (string.IsNullOrEmpty(httpProxyAddress))
@@ -95,7 +96,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpProxyUsername) || !string.IsNullOrEmpty(_httpProxyPassword))
                 {
-                    Credentials = new BasicProxyCredentials(_httpProxyUsername, _httpProxyPassword);
+                    proxyCredentials.Add(proxyHttpUri, _httpProxyUsername, _httpProxyPassword);
                 }
             }
 
@@ -125,7 +126,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpsProxyUsername) || !string.IsNullOrEmpty(_httpsProxyPassword))
                 {
-                    Credentials = new BasicProxyCredentials(_httpsProxyUsername, _httpsProxyPassword);
+                    proxyCredentials.Add(proxyHttpsUri, _httpsProxyUsername, _httpsProxyPassword);
                 }
             }
 
@@ -246,18 +247,19 @@ namespace GitHub.Runner.Sdk
         // Defaults to null (no-op). Never log the password itself.
         public static Action<string> Tracing { get; set; }
 
-        // Returns credentials only for Basic auth, null for all other schemes.
-        // Returning null causes .NET to skip that scheme entirely, so Negotiate and NTLM
-        // are never attempted and Basic is used directly — avoiding failures when those
-        // schemes are advertised but not actually supported by the proxy.
-        // URI matching is intentionally ignored to avoid CredentialCache pitfalls.
+        // Returns credentials only for Basic auth, keyed by proxy host:port.
+        // Returning null for non-Basic schemes causes .NET to skip Negotiate/NTLM entirely.
+        // Matching by host:port (ignoring userinfo) avoids CredentialCache URI-matching
+        // pitfalls when .NET strips userinfo from the proxy URI before calling GetCredential.
         private sealed class BasicProxyCredentials : ICredentials
         {
-            private readonly NetworkCredential _credential;
+            // Key: "host:port" (case-insensitive), Value: credential for that proxy
+            private readonly Dictionary<string, NetworkCredential> _map =
+                new(StringComparer.OrdinalIgnoreCase);
 
-            internal BasicProxyCredentials(string username, string password)
+            internal void Add(Uri proxyUri, string username, string password)
             {
-                _credential = new NetworkCredential(username, password);
+                _map[$"{proxyUri.Host}:{proxyUri.Port}"] = new NetworkCredential(username, password);
             }
 
             public NetworkCredential GetCredential(Uri uri, string authType)
@@ -267,8 +269,14 @@ namespace GitHub.Runner.Sdk
                     Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, skipping (only Basic is supported)");
                     return null;
                 }
-                Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, returning credentials for user '{_credential.UserName}'");
-                return _credential;
+                var key = $"{uri.Host}:{uri.Port}";
+                if (_map.TryGetValue(key, out var cred))
+                {
+                    Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, returning credentials for user '{cred.UserName}'");
+                    return cred;
+                }
+                Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, no credentials found for {key}");
+                return null;
             }
         }
 
