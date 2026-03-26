@@ -95,11 +95,13 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpProxyUsername) || !string.IsNullOrEmpty(_httpProxyPassword))
                 {
-                    var credentials = new NetworkCredential(_httpProxyUsername, _httpProxyPassword);
-
-                    // Replace the entry in the credential cache if it exists
-                    (Credentials as CredentialCache).Remove(proxyHttpUri, "Basic");
-                    (Credentials as CredentialCache).Add(proxyHttpUri, "Basic", credentials);
+                    var credential = new NetworkCredential(_httpProxyUsername, _httpProxyPassword);
+                    // Register under both the full URI (with userinfo) and stripped URI (without userinfo).
+                    // .NET may or may not strip userinfo from the proxy URI before calling GetCredential,
+                    // so we store both to ensure a match. Only "Basic" is registered so that .NET returns
+                    // null for Negotiate/NTLM challenges and falls through to Basic, which works cross-platform.
+                    AddBasicCredential(proxyHttpUri, credential);
+                    AddBasicCredential(new UriBuilder(proxyHttpUri.Scheme, proxyHttpUri.Host, proxyHttpUri.Port).Uri, credential);
                 }
             }
 
@@ -129,11 +131,9 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpsProxyUsername) || !string.IsNullOrEmpty(_httpsProxyPassword))
                 {
-                    var credentials = new NetworkCredential(_httpsProxyUsername, _httpsProxyPassword);
-
-                    // Replace the entry in the credential cache if it exists
-                    (Credentials as CredentialCache).Remove(proxyHttpsUri, "Basic");
-                    (Credentials as CredentialCache).Add(proxyHttpsUri, "Basic", credentials);
+                    var credential = new NetworkCredential(_httpsProxyUsername, _httpsProxyPassword);
+                    AddBasicCredential(proxyHttpsUri, credential);
+                    AddBasicCredential(new UriBuilder(proxyHttpsUri.Scheme, proxyHttpsUri.Host, proxyHttpsUri.Port).Uri, credential);
                 }
             }
 
@@ -247,6 +247,12 @@ namespace GitHub.Runner.Sdk
             }
 
             return false;
+        }
+
+        private void AddBasicCredential(Uri proxyUri, NetworkCredential credential)
+        {
+            (Credentials as CredentialCache).Remove(proxyUri, "Basic");
+            (Credentials as CredentialCache).Add(proxyUri, "Basic", credential);
         }
 
         private string PrependHttpIfMissing(string proxyAddress)
