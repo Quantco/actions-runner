@@ -42,6 +42,8 @@ namespace GitHub.Runner.Sdk
 
         public RunnerWebProxy()
         {
+            Credentials = new CredentialCache();
+
             var httpProxyAddress = Environment.GetEnvironmentVariable("http_proxy");
             if (string.IsNullOrEmpty(httpProxyAddress))
             {
@@ -93,7 +95,13 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpProxyUsername) || !string.IsNullOrEmpty(_httpProxyPassword))
                 {
-                    Credentials = new BasicProxyCredentials(_httpProxyUsername, _httpProxyPassword);
+                    var credential = new NetworkCredential(_httpProxyUsername, _httpProxyPassword);
+                    // Register under both the full URI (with userinfo) and stripped URI (without userinfo).
+                    // .NET may or may not strip userinfo from the proxy URI before calling GetCredential,
+                    // so we store both to ensure a match. Only "Basic" is registered so that .NET returns
+                    // null for Negotiate/NTLM challenges and falls through to Basic, which works cross-platform.
+                    AddBasicCredential(proxyHttpUri, credential);
+                    AddBasicCredential(new UriBuilder(proxyHttpUri.Scheme, proxyHttpUri.Host, proxyHttpUri.Port).Uri, credential);
                 }
             }
 
@@ -123,7 +131,9 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpsProxyUsername) || !string.IsNullOrEmpty(_httpsProxyPassword))
                 {
-                    Credentials = new BasicProxyCredentials(_httpsProxyUsername, _httpsProxyPassword);
+                    var credential = new NetworkCredential(_httpsProxyUsername, _httpsProxyPassword);
+                    AddBasicCredential(proxyHttpsUri, credential);
+                    AddBasicCredential(new UriBuilder(proxyHttpsUri.Scheme, proxyHttpsUri.Host, proxyHttpsUri.Port).Uri, credential);
                 }
             }
 
@@ -177,21 +187,12 @@ namespace GitHub.Runner.Sdk
 
             if (destination.Scheme == Uri.UriSchemeHttps)
             {
-                return StripUserInfo(new Uri(_httpsProxyAddress));
+                return new Uri(_httpsProxyAddress);
             }
             else
             {
-                return StripUserInfo(new Uri(_httpProxyAddress));
+                return new Uri(_httpProxyAddress);
             }
-        }
-
-        private static Uri StripUserInfo(Uri uri)
-        {
-            if (string.IsNullOrEmpty(uri.UserInfo))
-            {
-                return uri;
-            }
-            return new UriBuilder(uri.Scheme, uri.Host, uri.Port).Uri;
         }
 
         public bool IsBypassed(Uri uri)
@@ -248,23 +249,10 @@ namespace GitHub.Runner.Sdk
             return false;
         }
 
-        // Returns credentials only for Basic auth, causing .NET to skip Negotiate/NTLM
-        // when those schemes are advertised but cannot succeed (e.g. no Kerberos on Linux).
-        private sealed class BasicProxyCredentials : ICredentials
+        private void AddBasicCredential(Uri proxyUri, NetworkCredential credential)
         {
-            private readonly NetworkCredential _credential;
-
-            internal BasicProxyCredentials(string username, string password)
-            {
-                _credential = new NetworkCredential(username, password);
-            }
-
-            public NetworkCredential GetCredential(Uri uri, string authType)
-            {
-                return string.Equals(authType, "Basic", StringComparison.OrdinalIgnoreCase)
-                    ? _credential
-                    : null;
-            }
+            (Credentials as CredentialCache).Remove(proxyUri, "Basic");
+            (Credentials as CredentialCache).Add(proxyUri, "Basic", credential);
         }
 
         private string PrependHttpIfMissing(string proxyAddress)

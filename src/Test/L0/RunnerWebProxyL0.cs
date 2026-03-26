@@ -581,6 +581,46 @@ namespace GitHub.Runner.Common.Tests
             }
         }
 
+        [Fact]
+        [Trait("Level", "L0")]
+        [Trait("Category", "Common")]
+        public void WebProxyCredentialsBasicAuthSchemeOnly()
+        {
+            // Verifies the fix for corporate proxies that advertise Negotiate/NTLM/Basic:
+            // - GetCredential returns null for Negotiate and NTLM so .NET skips them
+            // - GetCredential returns credentials for Basic (what the proxy actually accepts)
+            // - Lookup works both with and without userinfo in the URI (handles .NET stripping userinfo)
+            try
+            {
+                Environment.SetEnvironmentVariable("https_proxy", "http://user:pass@127.0.0.1:8888");
+                var proxy = new RunnerWebProxy();
+
+                var proxyUriWithUserInfo = new Uri("http://user:pass@127.0.0.1:8888");
+                var proxyUriWithoutUserInfo = new Uri("http://127.0.0.1:8888");
+
+                // Negotiate and NTLM must return null so .NET falls through to Basic
+                Assert.Null(proxy.Credentials.GetCredential(proxyUriWithUserInfo, "Negotiate"));
+                Assert.Null(proxy.Credentials.GetCredential(proxyUriWithUserInfo, "NTLM"));
+                Assert.Null(proxy.Credentials.GetCredential(proxyUriWithoutUserInfo, "Negotiate"));
+                Assert.Null(proxy.Credentials.GetCredential(proxyUriWithoutUserInfo, "NTLM"));
+
+                // Basic must return credentials regardless of whether the URI includes userinfo
+                var credWithUserInfo = proxy.Credentials.GetCredential(proxyUriWithUserInfo, "Basic");
+                Assert.NotNull(credWithUserInfo);
+                Assert.Equal("user", credWithUserInfo.UserName);
+                Assert.Equal("pass", credWithUserInfo.Password);
+
+                var credWithoutUserInfo = proxy.Credentials.GetCredential(proxyUriWithoutUserInfo, "Basic");
+                Assert.NotNull(credWithoutUserInfo);
+                Assert.Equal("user", credWithoutUserInfo.UserName);
+                Assert.Equal("pass", credWithoutUserInfo.Password);
+            }
+            finally
+            {
+                CleanProxyEnv();
+            }
+        }
+
         private void CleanProxyEnv()
         {
             Environment.SetEnvironmentVariable("http_proxy", null);
