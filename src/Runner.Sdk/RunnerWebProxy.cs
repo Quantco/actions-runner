@@ -95,13 +95,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpProxyUsername) || !string.IsNullOrEmpty(_httpProxyPassword))
                 {
-                    var credential = new NetworkCredential(_httpProxyUsername, _httpProxyPassword);
-                    // Register under both the full URI (with userinfo) and stripped URI (without userinfo).
-                    // .NET may or may not strip userinfo from the proxy URI before calling GetCredential,
-                    // so we store both to ensure a match. Only "Basic" is registered so that .NET returns
-                    // null for Negotiate/NTLM challenges and falls through to Basic, which works cross-platform.
-                    AddBasicCredential(proxyHttpUri, credential);
-                    AddBasicCredential(new UriBuilder(proxyHttpUri.Scheme, proxyHttpUri.Host, proxyHttpUri.Port).Uri, credential);
+                    Credentials = new BasicProxyCredentials(_httpProxyUsername, _httpProxyPassword);
                 }
             }
 
@@ -131,9 +125,7 @@ namespace GitHub.Runner.Sdk
 
                 if (!string.IsNullOrEmpty(_httpsProxyUsername) || !string.IsNullOrEmpty(_httpsProxyPassword))
                 {
-                    var credential = new NetworkCredential(_httpsProxyUsername, _httpsProxyPassword);
-                    AddBasicCredential(proxyHttpsUri, credential);
-                    AddBasicCredential(new UriBuilder(proxyHttpsUri.Scheme, proxyHttpsUri.Host, proxyHttpsUri.Port).Uri, credential);
+                    Credentials = new BasicProxyCredentials(_httpsProxyUsername, _httpsProxyPassword);
                 }
             }
 
@@ -249,10 +241,35 @@ namespace GitHub.Runner.Sdk
             return false;
         }
 
-        private void AddBasicCredential(Uri proxyUri, NetworkCredential credential)
+        // Optional trace sink wired up by the runner host (e.g. HostContext) so that
+        // proxy credential lookups are visible in the runner log for diagnostics.
+        // Defaults to null (no-op). Never log the password itself.
+        public static Action<string> Tracing { get; set; }
+
+        // Returns credentials only for Basic auth, null for all other schemes.
+        // Returning null causes .NET to skip that scheme entirely, so Negotiate and NTLM
+        // are never attempted and Basic is used directly — avoiding failures when those
+        // schemes are advertised but not actually supported by the proxy.
+        // URI matching is intentionally ignored to avoid CredentialCache pitfalls.
+        private sealed class BasicProxyCredentials : ICredentials
         {
-            (Credentials as CredentialCache).Remove(proxyUri, "Basic");
-            (Credentials as CredentialCache).Add(proxyUri, "Basic", credential);
+            private readonly NetworkCredential _credential;
+
+            internal BasicProxyCredentials(string username, string password)
+            {
+                _credential = new NetworkCredential(username, password);
+            }
+
+            public NetworkCredential GetCredential(Uri uri, string authType)
+            {
+                if (!string.Equals(authType, "Basic", StringComparison.OrdinalIgnoreCase))
+                {
+                    Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, skipping (only Basic is supported)");
+                    return null;
+                }
+                Tracing?.Invoke($"[RunnerWebProxy] GetCredential called: uri={uri}, authType={authType}, returning credentials for user '{_credential.UserName}'");
+                return _credential;
+            }
         }
 
         private string PrependHttpIfMissing(string proxyAddress)
