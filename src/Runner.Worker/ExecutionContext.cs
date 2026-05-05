@@ -904,6 +904,9 @@ namespace GitHub.Runner.Worker
             // File table
             Global.FileTable = new List<String>(message.FileTable ?? new string[0]);
 
+            // Workflow dependencies (lockfile pins)
+            Global.ActionsDependencies = message.ActionsDependencies;
+
             // What type of job request is running (i.e. Run Service vs. pipelines)
             Global.Variables.Set(Constants.Variables.System.JobRequestType, message.MessageType);
 
@@ -921,15 +924,12 @@ namespace GitHub.Runner.Worker
 
             Trace.Info("Initializing Job context");
             var jobContext = new JobContext();
-            if (Global.Variables.GetBoolean(Constants.Runner.Features.AddCheckRunIdToJobContext) ?? false)
+            ExpressionValues.TryGetValue("job", out var jobDictionary);
+            if (jobDictionary != null)
             {
-                ExpressionValues.TryGetValue("job", out var jobDictionary);
-                if (jobDictionary != null)
+                foreach (var pair in jobDictionary.AssertDictionary("job"))
                 {
-                    foreach (var pair in jobDictionary.AssertDictionary("job"))
-                    {
-                        jobContext[pair.Key] = pair.Value;
-                    }
+                    jobContext[pair.Key] = pair.Value;
                 }
             }
             ExpressionValues["job"] = jobContext;
@@ -1016,7 +1016,7 @@ namespace GitHub.Runner.Worker
             Global.WriteDebug = Global.Variables.Step_Debug ?? false;
 
             // Debugger enabled flag (from acquire response).
-            Global.EnableDebugger = message.EnableDebugger;
+            Global.Debugger = new Dap.DebuggerConfig(message.EnableDebugger, message.DebuggerTunnel);
 
             // Hook up JobServerQueueThrottling event, we will log warning on server tarpit.
             _jobServerQueue.JobServerQueueThrottling += JobServerQueueThrottling_EventReceived;
